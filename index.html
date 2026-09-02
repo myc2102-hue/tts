@@ -1,1 +1,1068 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTS Studio — 텍스트 음성 변환</title>
+<style>
+  :root {
+    --bg: #eef0f4; --panel: #ffffff; --chrome: #f7f8fa; --track: #f3f5f8;
+    --text: #1a1d21; --muted: #6b7280;
+    --accent: #4f6ef7; --accent-hover: #3d5ce5; --border: #dfe3e8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121418; --panel: #1b1e24; --chrome: #16181d; --track: #22252c;
+      --text: #e8eaed; --muted: #9aa0a8;
+      --accent: #6b85ff; --accent-hover: #8299ff; --border: #2c3038;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    font-size: 14px;
+  }
+  .app { display: flex; flex-direction: column; height: 100vh; }
 
+  button {
+    border: 0; border-radius: 8px; padding: 9px 16px;
+    font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #fff; transition: background .15s;
+  }
+  button:hover { background: var(--accent-hover); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.secondary {
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--border); font-weight: 500;
+  }
+  button.secondary:hover { background: var(--bg); border-color: var(--accent); }
+  select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 13.5px; min-width: 0;
+  }
+  label { font-size: 12px; color: var(--muted); }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 8px 0 0; }
+
+  /* ===== 상단 바 ===== */
+  .topbar {
+    display: flex; align-items: center; gap: 16px; flex: none;
+    height: 54px; padding: 0 16px;
+    background: var(--chrome); border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 700; white-space: nowrap; }
+  .brand .logo {
+    width: 27px; height: 27px; border-radius: 8px; background: var(--accent);
+    display: flex; align-items: center; justify-content: center; font-size: 14px;
+  }
+  .project-bar { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; }
+  .project-bar select { width: min(240px, 30vw); }
+  .project-bar button { padding: 7px 11px; font-size: 13px; }
+  .save-state { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+
+  /* ===== 작업 영역: 편집 패널 + 인스펙터 ===== */
+  .workspace { flex: 1; display: flex; min-height: 0; }
+  .editor { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--panel); }
+  .inspector {
+    width: 320px; flex: none; overflow-y: auto;
+    background: var(--chrome); border-left: 1px solid var(--border);
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+  }
+  .panel-title {
+    font-size: 11px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .panel-head .check-all {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 13px; color: var(--muted); cursor: pointer; user-select: none;
+  }
+  .panel-head .check-all input { width: 15px; height: 15px; accent-color: var(--accent); }
+  #addRow { padding: 6px 12px; font-size: 13px; margin-left: auto; }
+  .preset-badge {
+    font-size: 12px; font-weight: 600; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 999px; padding: 3px 10px;
+    max-width: 45%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ===== 스크립트 줄 (트랙 클립) ===== */
+  .rows-scroll { flex: 1; overflow-y: auto; padding: 14px 16px; }
+  #rows { counter-reset: track; }
+  .line {
+    display: flex; gap: 10px; align-items: flex-start;
+    background: var(--track); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; margin-bottom: 10px;
+  }
+  .line::before {
+    counter-increment: track;
+    content: counter(track, decimal-leading-zero);
+    flex: none; margin-top: 14px; font-size: 11px; font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--muted);
+  }
+  .line .grip {
+    flex: none; margin-top: 12px; padding: 2px;
+    color: var(--muted); font-size: 13px; line-height: 1;
+    cursor: grab; user-select: none;
+  }
+  .line .grip:hover { color: var(--text); }
+  .line .grip:active { cursor: grabbing; }
+  .line.dragging { opacity: .45; }
+  .drop-indicator {
+    height: 3px; border-radius: 2px; margin: 6px 2px;
+    background: #fff;
+    /* 라이트 모드의 흰 패널 위에서도 보이도록 강조색 테두리 + 광택 */
+    box-shadow: 0 0 0 1px var(--accent), 0 0 8px var(--accent);
+    pointer-events: none;
+  }
+  .line input[type=checkbox] {
+    margin-top: 13px; width: 16px; height: 16px; accent-color: var(--accent); flex: none;
+  }
+  .line textarea {
+    flex: 1; min-height: 44px; resize: vertical;
+    background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; font: inherit; font-size: 14.5px; line-height: 1.6;
+  }
+  .line textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .line .mini {
+    flex: none; margin-top: 6px; border: 0; border-radius: 8px; cursor: pointer;
+    padding: 7px 10px; font: inherit; font-size: 13px; font-weight: 600;
+  }
+  .line .mini.play { background: var(--accent); color: #fff; }
+  .line .mini.play:hover { background: var(--accent-hover); }
+  .line .mini.del { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .line .mini.del:hover { color: #e5484d; border-color: #e5484d; }
+  .line .mini:disabled { opacity: .5; cursor: default; }
+
+  /* ===== 인스펙터: 음성 설정 + 프리셋 ===== */
+  .inspector-body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  .field label { display: block; margin-bottom: 6px; }
+  .field select { width: 100%; }
+  .slider-group output { float: right; font-size: 12.5px; color: var(--text); }
+  #savePreset { width: 100%; }
+  .presets { display: flex; gap: 7px; flex-wrap: wrap; }
+  .presets .chip {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 12px; font-size: 12.5px; font-weight: 500;
+  }
+  .presets .chip:hover { border-color: var(--accent); }
+  .presets .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip .del { margin-left: 7px; opacity: .5; font-weight: 700; }
+  .chip .del:hover { opacity: 1; }
+  .presets-label {
+    font-size: 11px; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--muted); margin: 2px 0 -8px;
+  }
+  .presets-label .preset-current {
+    color: var(--accent); font-weight: 600;
+    letter-spacing: normal; text-transform: none; margin-left: 4px;
+  }
+
+  /* ===== 하단 트랜스포트 바 ===== */
+  .transport {
+    flex: none; display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; background: var(--chrome); border-top: 1px solid var(--border);
+  }
+  .transport #speak { padding: 11px 22px; font-size: 14.5px; border-radius: 10px; }
+  #eq { flex: 1; height: 112px; min-width: 80px; display: block; }
+  #player { width: 300px; height: 40px; flex: none; display: none; }
+  .status { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .status.error { color: #e5484d; }
+  .hint { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+
+  /* ===== 모달 ===== */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px; width: min(92vw, 380px);
+    box-shadow: 0 12px 40px rgba(0,0,0,.3);
+    animation: pop .15s ease;
+  }
+  @keyframes pop { from { transform: scale(.95); opacity: 0; } }
+  .modal h3 { margin: 0 0 12px; font-size: 16px; }
+  .modal p { margin: 0 0 4px; font-size: 14px; color: var(--muted); line-height: 1.5; }
+  .modal input {
+    width: 100%; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; font: inherit; font-size: 14.5px; margin-top: 4px;
+  }
+  .modal input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  .modal-actions button { padding: 9px 18px; font-size: 14px; }
+
+  /* ===== 전체 로딩 오버레이 ===== */
+  .loading-box { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .loading-box .spinner {
+    width: 42px; height: 42px; border-radius: 50%;
+    border: 4px solid rgba(255,255,255,.25); border-top-color: #fff;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-box p { margin: 0; font-size: 14.5px; color: #fff; }
+
+  /* ===== 좁은 화면 ===== */
+  @media (max-width: 820px) {
+    .workspace { flex-direction: column; overflow-y: auto; }
+    .editor { flex: none; }
+    .rows-scroll { max-height: 45vh; }
+    .inspector { width: auto; border-left: 0; border-top: 1px solid var(--border); }
+    .transport { flex-wrap: wrap; }
+    #eq { order: 5; flex-basis: 100%; }
+    #player { width: 100%; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><span class="logo">🎙</span> TTS Studio</div>
+    <div class="project-bar">
+      <select id="projectSelect" title="프로젝트 전환 — 선택하면 바로 불러옵니다"></select>
+      <button id="projectNew" class="secondary" type="button">＋ 새 프로젝트</button>
+      <button id="projectRename" class="secondary" type="button" title="이름 바꾸기">✏️</button>
+      <button id="projectDelete" class="secondary" type="button" title="현재 프로젝트 삭제">🗑</button>
+    </div>
+    <span class="save-state" id="saveState"></span>
+  </header>
+
+  <div class="workspace">
+    <section class="editor">
+      <div class="panel-head">
+        <label class="check-all"><input type="checkbox" id="checkAll"> 전체 선택</label>
+        <span class="panel-title">스크립트</span>
+        <span class="preset-badge" id="currentPresetBadge" title="사용 중인 프리셋" hidden></span>
+        <button id="addRow" class="secondary" type="button">＋ 줄 추가</button>
+      </div>
+      <div class="rows-scroll">
+        <div id="rows"></div>
+      </div>
+    </section>
+
+    <aside class="inspector">
+      <div class="panel-head"><span class="panel-title">음성 설정</span></div>
+      <div class="inspector-body">
+        <div class="field">
+          <label for="voice">목소리</label>
+          <select id="voice"></select>
+        </div>
+        <div class="field slider-group">
+          <label for="rate">속도 <output id="rateOut">0%</output></label>
+          <input type="range" id="rate" min="-50" max="100" value="0" step="5">
+        </div>
+        <div class="field slider-group">
+          <label for="pitch">톤 <output id="pitchOut">0Hz</output></label>
+          <input type="range" id="pitch" min="-50" max="50" value="0" step="5">
+        </div>
+        <button id="savePreset" class="secondary" type="button">⭐ 현재 설정을 프리셋으로 저장</button>
+        <p class="presets-label">스타일 프리셋 <span class="preset-current" id="stylePresetCurrent"></span></p>
+        <div class="presets" id="presets"></div>
+        <p class="presets-label" id="myPresetsLabel" hidden>⭐ 내 프리셋 <span class="preset-current" id="myPresetCurrent"></span></p>
+        <div class="presets" id="myPresets"></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="transport">
+    <button id="speak" title="체크된 줄이 있으면 그 줄만, 없으면 전체 재생">▶ 재생</button>
+    <button id="downloadSel" class="secondary" type="button" title="체크된 줄이 있으면 그 줄만, 없으면 전체 저장">⬇ MP3 저장</button>
+    <span class="status" id="status"></span>
+    <canvas id="eq"></canvas>
+    <audio id="player" controls></audio>
+    <span class="hint">⌘Enter 재생 · ⌘S 저장</span>
+  </footer>
+</div>
+
+<div class="overlay" id="loadingOverlay" hidden>
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <p id="loadingMsg">적용 중…</p>
+  </div>
+</div>
+
+<div class="overlay" id="overlay" hidden>
+  <div class="modal">
+    <h3 id="modalTitle"></h3>
+    <p id="modalMsg" hidden></p>
+    <input id="modalInput" type="text" maxlength="20" hidden>
+    <div class="modal-actions">
+      <button class="secondary" id="modalCancel" type="button">취소</button>
+      <button id="modalOk" type="button">확인</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const voiceEl = $("voice"), rateEl = $("rate"), pitchEl = $("pitch");
+const speakBtn = $("speak"), player = $("player"), statusEl = $("status");
+const rowsEl = $("rows"), checkAllEl = $("checkAll");
+
+rateEl.oninput = () => $("rateOut").textContent = (rateEl.value > 0 ? "+" : "") + rateEl.value + "%";
+pitchEl.oninput = () => $("pitchOut").textContent = (pitchEl.value > 0 ? "+" : "") + pitchEl.value + "Hz";
+
+function setStatus(msg, isError = false) {
+  statusEl.textContent = msg;
+  statusEl.classList.toggle("error", isError);
+}
+
+function currentOptions() {
+  return { voice: voiceEl.value, rate: Number(rateEl.value), pitch: Number(pitchEl.value) };
+}
+
+// ===== 입력 줄 관리 =====
+let dragLine = null; // 현재 드래그 중인 줄
+
+// 드롭 위치 표시선: 이 자리에 놓으면 순서가 바뀐다는 것을 미리 보여줌
+const dropLine = document.createElement("div");
+dropLine.className = "drop-indicator";
+
+rowsEl.addEventListener("dragover", e => {
+  if (!dragLine) return;
+  e.preventDefault();
+  dropLine.remove(); // 위치 계산 전에 빼서 이웃 판정을 단순화
+  const next = [...rowsEl.querySelectorAll(".line:not(.dragging)")]
+    .find(l => e.clientY < l.getBoundingClientRect().top + l.offsetHeight / 2);
+  // 제자리에 놓는 경우(순서 불변)에는 표시하지 않음
+  const noMove = next ? next.previousElementSibling === dragLine
+                      : rowsEl.lastElementChild === dragLine;
+  if (!noMove) rowsEl.insertBefore(dropLine, next ?? null);
+});
+
+rowsEl.addEventListener("drop", e => {
+  if (!dragLine) return;
+  e.preventDefault();
+  if (dropLine.parentNode) rowsEl.insertBefore(dragLine, dropLine);
+  dropLine.remove();
+});
+
+function addRow(text = "", focus = false) {
+  const line = document.createElement("div");
+  line.className = "line";
+
+  const grip = document.createElement("span");
+  grip.className = "grip";
+  grip.textContent = "☰";
+  grip.title = "드래그하여 순서 변경";
+  // 핸들을 잡았을 때만 줄을 드래그 가능하게 — 텍스트 선택과 충돌 방지
+  grip.onmousedown = () => {
+    line.draggable = true;
+    document.addEventListener("mouseup", () => { line.draggable = false; }, { once: true });
+  };
+  line.addEventListener("dragstart", e => {
+    dragLine = line;
+    line.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+  });
+  line.addEventListener("dragend", () => {
+    line.classList.remove("dragging");
+    line.draggable = false;
+    dragLine = null;
+    dropLine.remove();
+    scheduleSave();
+  });
+
+  const check = document.createElement("input");
+  check.type = "checkbox";
+  check.className = "line-check";
+  check.onchange = () => { syncCheckAll(); scheduleSave(); };
+
+  const ta = document.createElement("textarea");
+  ta.className = "line-text";
+  ta.placeholder = "텍스트를 입력하세요…";
+  ta.value = text;
+  ta.addEventListener("input", scheduleSave);
+  ta.addEventListener("keydown", e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") playRow(line, ta);
+  });
+
+  const play = document.createElement("button");
+  play.type = "button";
+  play.className = "mini play";
+  play.textContent = "▶";
+  play.title = "이 줄만 재생";
+  play.onclick = () => playRow(line, ta);
+
+  const del = document.createElement("button");
+  del.type = "button";
+  del.className = "mini del";
+  del.textContent = "×";
+  del.title = "줄 삭제";
+  del.onclick = () => {
+    if (rowsEl.children.length <= 1) { ta.value = ""; ta.focus(); scheduleSave(); return; }
+    line.remove();
+    syncCheckAll();
+    scheduleSave();
+  };
+
+  line.append(grip, check, ta, play, del);
+  rowsEl.appendChild(line);
+  if (focus) ta.focus();
+  return line;
+}
+
+function allRows() { return [...rowsEl.querySelectorAll(".line")]; }
+
+function selectedTexts() {
+  const rows = allRows()
+    .map(l => ({ checked: l.querySelector(".line-check").checked,
+                 text: l.querySelector(".line-text").value.trim() }))
+    .filter(r => r.text);
+  const checked = rows.filter(r => r.checked);
+  // 아무것도 선택하지 않았으면 전체를 대상으로
+  return (checked.length ? checked : rows).map(r => r.text);
+}
+
+function syncCheckAll() {
+  const checks = allRows().map(l => l.querySelector(".line-check"));
+  checkAllEl.checked = checks.length > 0 && checks.every(c => c.checked);
+  updateActionLabels();
+}
+
+// 재생/저장 버튼에 지금 실행하면 무엇이 대상인지 표시 (선택 없음 = 전체)
+function updateActionLabels() {
+  const n = allRows().filter(l =>
+    l.querySelector(".line-check").checked && l.querySelector(".line-text").value.trim()).length;
+  speakBtn.textContent = n ? `▶ 선택 ${n}줄 재생` : "▶ 재생";
+  $("downloadSel").textContent = n ? `⬇ 선택 ${n}줄 저장` : "⬇ MP3 저장";
+}
+
+checkAllEl.onchange = () => {
+  allRows().forEach(l => l.querySelector(".line-check").checked = checkAllEl.checked);
+  scheduleSave();
+};
+
+$("addRow").onclick = () => { addRow("", true); scheduleSave(); };
+
+// ===== 합성 요청 =====
+async function fetchAudio(url, payload) {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.blob();
+}
+
+let currentUrl = null;
+function setPlayer(blob) {
+  if (currentUrl) URL.revokeObjectURL(currentUrl);
+  currentUrl = URL.createObjectURL(blob);
+  player.src = currentUrl;
+  player.style.display = "block";
+  return currentUrl;
+}
+
+async function playRow(line, ta) {
+  const text = ta.value.trim();
+  if (!text) { ta.focus(); return; }
+  const btn = line.querySelector(".mini.play");
+  btn.disabled = true;
+  setStatus("생성 중…");
+  showLoading(synthLoadingMsg("음성 생성 중…"));
+  try {
+    const blob = await fetchAudio("/tts", { text, ...currentOptions() });
+    setPlayer(blob);
+    setStatus("");
+    await player.play();
+  } catch (e) {
+    setStatus("오류: " + (e.message || "생성 실패"), true);
+  } finally {
+    hideLoading();
+    btn.disabled = false;
+  }
+}
+
+async function speakSelected() {
+  const texts = selectedTexts();
+  if (!texts.length) { setStatus("재생할 텍스트가 없습니다", true); return; }
+  speakBtn.disabled = true;
+  setStatus(`${texts.length}줄 생성 중…`);
+  showLoading(synthLoadingMsg(`${texts.length}줄 음성 생성 중…`));
+  try {
+    const blob = await fetchAudio("/tts_batch", { texts, ...currentOptions() });
+    setPlayer(blob);
+    setStatus("");
+    await player.play();
+  } catch (e) {
+    setStatus("오류: " + (e.message || "생성 실패"), true);
+  } finally {
+    hideLoading();
+    speakBtn.disabled = false;
+  }
+}
+
+async function downloadSelected() {
+  const texts = selectedTexts();
+  if (!texts.length) { setStatus("저장할 텍스트가 없습니다", true); return; }
+  const btn = $("downloadSel");
+  btn.disabled = true;
+  setStatus(`${texts.length}줄 생성 중…`);
+  showLoading(synthLoadingMsg(`${texts.length}줄 MP3 생성 중…`));
+  try {
+    const blob = await fetchAudio("/tts_batch", { texts, ...currentOptions() });
+    const url = setPlayer(blob); // 재생 목록에도 반영
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().slice(0, 19).replaceAll(/[-:]/g, "").replace("T", "-");
+    a.href = url;
+    a.download = `tts-${ts}.mp3`;
+    a.click();
+    setStatus(`${texts.length}줄을 MP3로 저장했습니다`);
+  } catch (e) {
+    setStatus("오류: " + (e.message || "생성 실패"), true);
+  } finally {
+    hideLoading();
+    btn.disabled = false;
+  }
+}
+
+speakBtn.onclick = speakSelected;
+$("downloadSel").onclick = downloadSelected;
+
+// ===== 목소리 목록 =====
+async function loadVoices() {
+  try {
+    const res = await fetch("/voices");
+    const { featured, all } = await res.json();
+    const featuredNames = new Set(featured.map(v => v.name));
+
+    const gMain = document.createElement("optgroup");
+    gMain.label = "추천";
+    for (const v of featured) {
+      const o = document.createElement("option");
+      o.value = v.name; o.textContent = v.label;
+      gMain.appendChild(o);
+    }
+    voiceEl.appendChild(gMain);
+
+    const gAll = document.createElement("optgroup");
+    gAll.label = "전체";
+    for (const v of all) {
+      if (featuredNames.has(v.name)) continue;
+      const o = document.createElement("option");
+      o.value = v.name;
+      o.textContent = `${v.name} (${v.gender === "Female" ? "여" : "남"})`;
+      gAll.appendChild(o);
+    }
+    voiceEl.appendChild(gAll);
+  } catch {
+    setStatus("음성 목록을 불러오지 못했습니다", true);
+  }
+}
+
+// ===== 스타일 프리셋: 목소리 + 속도 + 톤 조합 =====
+const PRESETS = [
+  { label: "📰 아나운서 (남)",   voice: "ko-KR-InJoonNeural",             rate: -5,  pitch: -5 },
+  { label: "📰 아나운서 (여)",   voice: "ko-KR-SunHiNeural",              rate: -5,  pitch: -5 },
+  { label: "⚡ MZ 활기찬 (여)",  voice: "ko-KR-SunHiNeural",              rate: 20,  pitch: 15 },
+  { label: "⚡ MZ 활기찬 (남)",  voice: "ko-KR-HyunsuMultilingualNeural", rate: 20,  pitch: 10 },
+  { label: "🎬 다큐 나레이션",   voice: "ko-KR-InJoonNeural",             rate: -15, pitch: -10 },
+  { label: "📖 오디오북",        voice: "ko-KR-SunHiNeural",              rate: -10, pitch: 0 },
+  { label: "🌏 외국인 느낌 (여)", voice: "en-US-AvaMultilingualNeural",    rate: 0,   pitch: 0 },
+  { label: "🌏 외국인 느낌 (남)", voice: "en-US-AndrewMultilingualNeural", rate: 0,   pitch: 0 },
+];
+
+let activePreset = null; // 사용 중 프리셋: { kind: "style" | "mine", label } 또는 null
+
+// activePreset에 맞춰 칩 강조를 다시 그림 (칩은 렌더 순서 = 데이터 순서)
+function markActiveChip() {
+  document.querySelectorAll(".presets .chip.active").forEach(c => c.classList.remove("active"));
+  if (!activePreset) return;
+  const wrap = activePreset.kind === "mine" ? $("myPresets") : $("presets");
+  const source = activePreset.kind === "mine" ? loadMyPresets() : PRESETS;
+  const idx = source.findIndex(x => x.label === activePreset.label);
+  wrap.querySelectorAll(".chip")[idx]?.classList.add("active");
+}
+
+// 각 섹션 제목 옆 + 스크립트 패널 헤더 배지에 사용 중인 프리셋 표시
+function updatePresetIndicators() {
+  $("stylePresetCurrent").textContent =
+    activePreset?.kind === "style" ? `— 사용 중: ${activePreset.label}` : "";
+  $("myPresetCurrent").textContent =
+    activePreset?.kind === "mine" ? `— 사용 중: ${activePreset.label}` : "";
+  const badge = $("currentPresetBadge");
+  badge.hidden = !activePreset;
+  badge.textContent = activePreset ? activePreset.label : "";
+}
+
+function clearActivePreset() {
+  activePreset = null;
+  markActiveChip();
+  updatePresetIndicators();
+}
+
+// 프로젝트에 저장된 사용 중 프리셋을 복원 (프리셋이 삭제됐으면 해제 상태로)
+function restorePreset(sel) {
+  activePreset = null;
+  if (sel) {
+    const source = sel.kind === "mine" ? loadMyPresets() : PRESETS;
+    if (source.some(x => x.label === sel.label)) activePreset = { kind: sel.kind, label: sel.label };
+  }
+  markActiveChip();
+  updatePresetIndicators();
+}
+
+// ===== 전체 로딩 오버레이 =====
+const loadingOverlay = $("loadingOverlay");
+
+function showLoading(msg) {
+  $("loadingMsg").textContent = msg;
+  loadingOverlay.hidden = false;
+}
+
+function hideLoading() {
+  loadingOverlay.hidden = true;
+}
+
+function stopAllPlayback() {
+  try { player.pause(); player.currentTime = 0; } catch {}
+}
+
+// 합성 로딩 메시지에 적용 중인 프리셋 이름을 함께 표시 (프리셋·합성 로딩 통합)
+function synthLoadingMsg(msg) {
+  return (activePreset ? `'${activePreset.label}' · ` : "") + msg;
+}
+
+function applyPreset(p, kind) {
+  stopAllPlayback(); // 이전 설정으로 만든 음성이므로 프리셋 변경 시 재생 중단
+  voiceEl.value = p.voice;
+  rateEl.value = p.rate;
+  pitchEl.value = p.pitch;
+  rateEl.oninput();
+  pitchEl.oninput();
+  activePreset = { kind, label: p.label };
+  markActiveChip();
+  updatePresetIndicators();
+  scheduleSave();
+}
+
+// ===== 임베디드 모달 (prompt/confirm 대체) =====
+const overlay = $("overlay"), modalTitle = $("modalTitle"), modalMsg = $("modalMsg"),
+      modalInput = $("modalInput"), modalOk = $("modalOk"), modalCancel = $("modalCancel");
+let modalResolve = null;
+
+function openModal({ title, message = "", input = false, placeholder = "", value = "", okText = "확인" }) {
+  return new Promise(resolve => {
+    modalResolve = resolve;
+    modalTitle.textContent = title;
+    modalMsg.textContent = message;
+    modalMsg.hidden = !message;
+    modalInput.hidden = !input;
+    modalInput.value = value;
+    modalInput.placeholder = placeholder;
+    modalOk.textContent = okText;
+    overlay.hidden = false;
+    (input ? modalInput : modalOk).focus();
+  });
+}
+function closeModal(result) {
+  overlay.hidden = true;
+  const r = modalResolve; modalResolve = null;
+  r?.(result);
+}
+modalOk.onclick = () => closeModal(modalInput.hidden ? true : modalInput.value.trim());
+modalCancel.onclick = () => closeModal(null);
+overlay.addEventListener("click", e => { if (e.target === overlay) closeModal(null); });
+document.addEventListener("keydown", e => {
+  if (overlay.hidden) return;
+  if (e.key === "Escape") closeModal(null);
+  else if (e.key === "Enter" && !modalInput.hidden && document.activeElement === modalInput)
+    closeModal(modalInput.value.trim());
+});
+
+// 삭제는 실수 방지를 위해 두 번 확인
+async function confirmDeleteTwice(title, message) {
+  const first = await openModal({ title, message, okText: "삭제" });
+  if (!first) return false;
+  const second = await openModal({
+    title,
+    message: "정말 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
+    okText: "정말 삭제",
+  });
+  return !!second;
+}
+
+// ===== 내 프리셋: 현재 설정을 이름 붙여 localStorage에 저장 =====
+const LS_KEY = "tts_custom_presets";
+
+function loadMyPresets() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch { return []; }
+}
+function storeMyPresets(list) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(list)); } catch {}
+}
+
+function renderMyPresets() {
+  const wrap = $("myPresets");
+  const list = loadMyPresets();
+  wrap.innerHTML = "";
+  $("myPresetsLabel").hidden = list.length === 0;
+
+  for (const p of list) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = p.label;
+
+    const del = document.createElement("span");
+    del.className = "del";
+    del.textContent = "×";
+    del.title = "삭제";
+    del.onclick = async e => {
+      e.stopPropagation();
+      const ok = await confirmDeleteTwice("프리셋 삭제", `'${p.label}' 프리셋을 삭제할까요?`);
+      if (!ok) return;
+      storeMyPresets(loadMyPresets().filter(x => x.label !== p.label));
+      // 사용 중이던 프리셋을 지우면 사용 중 표시도 해제
+      if (activePreset?.kind === "mine" && activePreset.label === p.label) {
+        activePreset = null;
+        updatePresetIndicators();
+        scheduleSave();
+      }
+      renderMyPresets();
+    };
+    b.appendChild(del);
+
+    b.onclick = () => applyPreset(p, "mine");
+    wrap.appendChild(b);
+  }
+  markActiveChip(); // 다시 그린 뒤 사용 중 칩 강조 복원
+}
+
+$("savePreset").onclick = async () => {
+  const name = ((await openModal({
+    title: "프리셋 저장",
+    input: true,
+    placeholder: "프리셋 이름 (예: 내 아나운서)",
+    okText: "저장",
+  })) || "").slice(0, 20);
+  if (!name) return;
+
+  const list = loadMyPresets().filter(x => x.label !== name); // 같은 이름은 덮어쓰기
+  list.push({ label: name, ...currentOptions() });
+  storeMyPresets(list);
+  // 방금 저장한 프리셋을 사용 중으로 표시
+  activePreset = { kind: "mine", label: name };
+  renderMyPresets();
+  updatePresetIndicators();
+  scheduleSave();
+};
+
+function renderPresets() {
+  const wrap = $("presets");
+  for (const p of PRESETS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = p.label;
+    b.onclick = () => applyPreset(p, "style");
+    wrap.appendChild(b);
+  }
+  // 프리셋 밖에서 설정을 바꾸면 선택 해제
+  for (const el of [voiceEl, rateEl, pitchEl]) {
+    el.addEventListener("input", clearActivePreset);
+    el.addEventListener("change", clearActivePreset);
+  }
+}
+
+// ===== 이퀄라이저: 그라데이션 + 글로우 + 피크 캡 비주얼라이저 =====
+const eqCanvas = $("eq"), eqCtx = eqCanvas.getContext("2d");
+const EQ_BARS = 96; // 가느다란 막대를 촘촘하게
+const eqLevels = new Float32Array(EQ_BARS); // 표시 값 — 잔상이 남으며 부드럽게 감쇠
+const eqPeaks = new Float32Array(EQ_BARS);  // 최고점에 머물다 천천히 떨어지는 피크 캡
+let audioCtx = null, analyser = null, eqRaf = 0, eqActive = false;
+
+function setupAnalyser() {
+  if (audioCtx) return;
+  // createMediaElementSource는 요소당 1회만 가능하므로 최초 재생 때 한 번만 연결
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.75;
+  audioCtx.createMediaElementSource(player).connect(analyser);
+  analyser.connect(audioCtx.destination);
+}
+
+function fillBar(x, y, bw, bh, r) {
+  eqCtx.beginPath();
+  if (eqCtx.roundRect) eqCtx.roundRect(x, y, bw, bh, r);
+  else eqCtx.rect(x, y, bw, bh);
+  eqCtx.fill();
+}
+
+function renderEq(now) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = eqCanvas.clientWidth * dpr, h = eqCanvas.clientHeight * dpr;
+  if (eqCanvas.width !== w || eqCanvas.height !== h) { eqCanvas.width = w; eqCanvas.height = h; }
+
+  eqCtx.clearRect(0, 0, w, h);
+  const gap = 3 * dpr; // 막대보다 넓은 간격으로 가늘어 보이게
+  const barW = (w - gap * (EQ_BARS - 1)) / EQ_BARS;
+  const drift = Math.sin(now / 1800) * 30; // 전체 색이 숨쉬듯 흐름
+
+  // 전체 음량에 비례해 은은하게 깔리는 배경 광채
+  let avg = 0;
+  for (let i = 0; i < EQ_BARS; i++) avg += eqLevels[i];
+  avg /= EQ_BARS;
+  if (avg > 0.01) {
+    const bg = eqCtx.createLinearGradient(0, 0, w, 0);
+    bg.addColorStop(0, `hsla(${190 + drift}, 90%, 60%, ${avg * .28})`);
+    bg.addColorStop(0.5, `hsla(${275 + drift}, 90%, 62%, ${avg * .34})`);
+    bg.addColorStop(1, `hsla(${360 + drift}, 90%, 60%, ${avg * .28})`);
+    eqCtx.fillStyle = bg;
+    fillBar(0, 0, w, h, 8 * dpr);
+  }
+
+  for (let i = 0; i < EQ_BARS; i++) {
+    const t = i / EQ_BARS;
+    const v = eqLevels[i];
+    const x = i * (barW + gap);
+    const hue = 190 + t * 170 + drift; // 시안 → 파랑 → 보라 → 핑크 → 레드
+    const bh = Math.max(2 * dpr, v * h * 0.96);
+    const y = (h - bh) / 2;
+
+    // 바 내부: 가장자리는 진하고 세로 중앙이 빛나는 그라데이션
+    const grad = eqCtx.createLinearGradient(0, y, 0, y + bh);
+    grad.addColorStop(0, `hsl(${hue}, 90%, 46%)`);
+    grad.addColorStop(0.5, `hsl(${hue + 14}, 100%, ${68 + v * 14}%)`);
+    grad.addColorStop(1, `hsl(${hue}, 90%, 46%)`);
+
+    eqCtx.shadowColor = `hsla(${hue}, 95%, 64%, .95)`;
+    eqCtx.shadowBlur = 24 * dpr * v; // 소리가 클수록 강렬한 네온 글로우
+    eqCtx.fillStyle = grad;
+    fillBar(x, y, barW, bh, barW / 2); // 세로 중앙 기준으로 위아래 성장
+
+    const p = eqPeaks[i];
+    if (p > 0.03) {
+      const ph = Math.max(p * h * 0.96, bh);
+      eqCtx.shadowBlur = 10 * dpr;
+      eqCtx.fillStyle = `hsl(${hue + 10}, 100%, 86%)`;
+      fillBar(x, (h - ph) / 2 - 3.5 * dpr, barW, 2.2 * dpr, dpr); // 위 캡
+      fillBar(x, (h + ph) / 2 + 1.3 * dpr, barW, 2.2 * dpr, dpr); // 아래 캡
+    }
+  }
+  eqCtx.shadowBlur = 0;
+}
+
+function eqFrame(now) {
+  let data = null;
+  if (eqActive && analyser) {
+    data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(data);
+  }
+  let alive = false;
+  for (let i = 0; i < EQ_BARS; i++) {
+    // 에너지가 저역에 몰려 있어 로그 스케일로 샘플링해야 바가 고루 움직임
+    let target = 0;
+    if (data) {
+      const idx = Math.min(data.length - 1, Math.floor(Math.pow(i / EQ_BARS, 1.6) * data.length));
+      target = data[idx] / 255;
+    }
+    eqLevels[i] = Math.max(target, eqLevels[i] * 0.82);     // 잔상을 남기며 감쇠
+    eqPeaks[i] = Math.max(eqLevels[i], eqPeaks[i] - 0.014); // 캡은 천천히 낙하
+    if (eqLevels[i] > 0.004 || eqPeaks[i] > 0.03) alive = true;
+  }
+  renderEq(now);
+  // 정지 후에도 바가 다 잦아들 때까지 계속 그린 뒤에야 멈춤
+  eqRaf = (eqActive || alive) ? requestAnimationFrame(eqFrame) : 0;
+}
+
+function startEqLoop() {
+  if (!eqRaf) eqRaf = requestAnimationFrame(eqFrame);
+}
+
+player.addEventListener("play", () => {
+  setupAnalyser();
+  audioCtx.resume();
+  eqActive = true;
+  startEqLoop();
+});
+player.addEventListener("pause", () => { eqActive = false; startEqLoop(); });
+player.addEventListener("ended", () => { eqActive = false; startEqLoop(); });
+eqFrame(performance.now()); // 처음 화면에 기준선 표시
+
+// ===== 내 프로젝트: 줄 목록 + 옵션 전체를 이름 붙여 보관, 모든 변경은 자동 저장 =====
+const LS_PROJECTS = "tts_projects", LS_LAST = "tts_last_project";
+const projectSelect = $("projectSelect"), saveStateEl = $("saveState");
+let currentProjectId = null, saveTimer = 0, loadingProject = false;
+
+function loadProjects() {
+  try { return JSON.parse(localStorage.getItem(LS_PROJECTS)) || []; } catch { return []; }
+}
+function storeProjects(list) {
+  try { localStorage.setItem(LS_PROJECTS, JSON.stringify(list)); } catch {}
+}
+
+function makeProject(name, lines) {
+  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+           name, updatedAt: Date.now(), lines, ...currentOptions() };
+}
+
+function serializeLines() {
+  return allRows().map(l => ({
+    text: l.querySelector(".line-text").value,
+    checked: l.querySelector(".line-check").checked,
+  }));
+}
+
+function setSaveState(msg) { saveStateEl.textContent = msg; }
+
+function renderProjectSelect() {
+  const list = loadProjects().sort((a, b) => b.updatedAt - a.updatedAt);
+  projectSelect.innerHTML = "";
+  for (const p of list) {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.name;
+    projectSelect.appendChild(o);
+  }
+  projectSelect.value = currentProjectId ?? "";
+}
+
+function saveProjectNow() {
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  const list = loadProjects();
+  const p = list.find(x => x.id === currentProjectId);
+  if (!p) return;
+  p.lines = serializeLines();
+  Object.assign(p, currentOptions());
+  p.preset = activePreset ? { ...activePreset } : null; // 사용 중 프리셋도 프로젝트에 보관
+  p.updatedAt = Date.now();
+  storeProjects(list);
+  renderProjectSelect();
+  setSaveState("✓ 자동 저장됨");
+}
+
+function scheduleSave() {
+  updateActionLabels(); // 텍스트 입력·줄 삭제 등 모든 편집 경로에서 버튼 라벨 최신화
+  if (loadingProject || !currentProjectId) return;
+  clearTimeout(saveTimer);
+  setSaveState("저장 대기…");
+  saveTimer = setTimeout(saveProjectNow, 500);
+}
+
+// 프로젝트를 떠나기 전 예약된 저장을 즉시 반영
+function flushSave() { if (saveTimer) saveProjectNow(); }
+
+function applyProjectData(p) {
+  loadingProject = true;
+  rowsEl.innerHTML = "";
+  for (const line of (p.lines?.length ? p.lines : [{ text: "", checked: false }])) {
+    const row = addRow(line.text);
+    row.querySelector(".line-check").checked = !!line.checked;
+  }
+  syncCheckAll();
+  voiceEl.value = p.voice;
+  rateEl.value = p.rate;
+  pitchEl.value = p.pitch;
+  rateEl.oninput();
+  pitchEl.oninput();
+  restorePreset(p.preset); // 프로젝트에 저장된 사용 중 프리셋 복원
+  loadingProject = false;
+}
+
+function openProject(id) {
+  flushSave();
+  const p = loadProjects().find(x => x.id === id);
+  if (!p) return;
+  currentProjectId = id;
+  try { localStorage.setItem(LS_LAST, id); } catch {}
+  applyProjectData(p);
+  renderProjectSelect();
+  setSaveState("");
+}
+
+projectSelect.onchange = () => openProject(projectSelect.value);
+
+$("projectNew").onclick = async () => {
+  const name = await openModal({
+    title: "새 프로젝트",
+    input: true,
+    placeholder: "프로젝트 이름",
+    okText: "만들기",
+  });
+  if (name === null) return;
+  flushSave();
+  const list = loadProjects();
+  const p = makeProject(name || `새 프로젝트 ${list.length + 1}`, [{ text: "", checked: false }]);
+  list.push(p);
+  storeProjects(list);
+  openProject(p.id);
+  rowsEl.querySelector(".line-text")?.focus();
+};
+
+$("projectRename").onclick = async () => {
+  const cur = loadProjects().find(x => x.id === currentProjectId);
+  if (!cur) return;
+  const name = await openModal({
+    title: "프로젝트 이름 바꾸기",
+    input: true,
+    value: cur.name,
+    okText: "변경",
+  });
+  if (!name) return;
+  const list = loadProjects();
+  list.find(x => x.id === currentProjectId).name = name;
+  storeProjects(list);
+  renderProjectSelect();
+};
+
+$("projectDelete").onclick = async () => {
+  const list = loadProjects();
+  const p = list.find(x => x.id === currentProjectId);
+  if (!p) return;
+  const ok = await confirmDeleteTwice("프로젝트 삭제", `'${p.name}' 프로젝트를 삭제할까요?`);
+  if (!ok) return;
+  clearTimeout(saveTimer); // 삭제할 프로젝트의 예약 저장 취소
+  saveTimer = 0;
+  const rest = list.filter(x => x.id !== currentProjectId);
+  if (!rest.length) rest.push(makeProject("기본 프로젝트", [{ text: "", checked: false }]));
+  storeProjects(rest);
+  currentProjectId = null;
+  openProject(rest.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0].id);
+};
+
+// 옵션 변경도 자동 저장 대상
+for (const el of [voiceEl, rateEl, pitchEl]) {
+  el.addEventListener("input", scheduleSave);
+  el.addEventListener("change", scheduleSave);
+}
+
+// Cmd+S / Ctrl+S: 예약을 기다리지 않고 즉시 저장
+document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+    e.preventDefault();
+    saveProjectNow();
+  }
+});
+
+function initProjects() {
+  let list = loadProjects();
+  if (!list.length) {
+    list = [makeProject("기본 프로젝트",
+      [{ text: "안녕하세요. 텍스트를 입력하면 자연스러운 목소리로 읽어드립니다.", checked: false }])];
+    storeProjects(list);
+  }
+  let lastId = null;
+  try { lastId = localStorage.getItem(LS_LAST); } catch {}
+  const first = list.find(p => p.id === lastId)
+    || list.slice().sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  openProject(first.id);
+}
+
+renderPresets();
+renderMyPresets();
+loadVoices().then(initProjects); // 목소리 목록이 있어야 저장된 voice 값을 복원할 수 있음
+</script>
+</body>
+</html>
